@@ -1,0 +1,10 @@
+fastapi
+pydantic
+nest-asyncio
+uvicorn
+pymongo
+pandas
+python-dotenv
+pyngrok
+python-multipart
+motor

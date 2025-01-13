@@ -11,7 +11,7 @@ client = None
 async def connect_to_mongo():
     global client
     mongo_url = os.getenv("Mongo_url")
-    
+    print(mongo_url)
     if not mongo_url:
         raise HTTPException(status_code=500, detail="MongoDB connection string not found")
     

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from items.model import Item
-from database.connection import get_db
-from core.security import get_current_user
-from utils.common import encrypt_data
+from api.items.model import Item
+from api.database.connection import get_db
+from api.core.security import get_current_user
+from api.utils.common import encrypt_data, decrypt_data
 import pandas as pd
 from io import BytesIO
 from bson import ObjectId
@@ -11,17 +11,46 @@ items_router = APIRouter()
 
 @items_router.get("/", response_model=list)
 async def get_items(current_user: dict = Depends(get_current_user), db=Depends(get_db)):
-    print("current user _id", current_user["_id"])
-    items = await db["Inventory"].find_one({"user_id": ObjectId('67818a4db5589edb3863313f')})
+    items_cursor = db["Inventory"].find({"user_id": ObjectId(current_user["_id"])})
+    items = await items_cursor.to_list(length=None)  # Fetch all documents
+    item_list = []
     print(items)
-    return items
+    for item in items:
+        item_data = {
+            "id": str(item["_id"]),  # Convert ObjectId to a string
+            "name": decrypt_data(item["name"]),  # Decrypt sensitive data
+            "description": decrypt_data(item["description"]),
+            "quantity": decrypt_data(item["quantity"]),
+            "cabinet": decrypt_data(item["cabinet"]),
+            "room": decrypt_data(item["room"]),
+            "location": decrypt_data(item["location"]),
+        }
+        item_list.append(item_data)  # Add to the result list
+
+    return item_list
 
 @items_router.post("/", response_model=dict)
 async def add_item(item: Item, current_user: dict = Depends(get_current_user), db=Depends(get_db)):
-    item_data = item.dict()
-    item_data["user_id"] = current_user["_id"]
+    # Get the next item ID
+    next_item_id_doc = await db["Inventory"].find_one(sort=[("id", -1)])  # Get the document with the highest ID
+    next_item_id = next_item_id_doc["id"] + 1 if next_item_id_doc else 1  # Increment ID or set to 1 if no items exist
+
+    # Prepare item data with encryption
+    item_data = {
+        "id": next_item_id,
+        "name": encrypt_data(item.name),  # Encrypt the name
+        "description": encrypt_data(item.description) if item.description else "",  # Encrypt the description if present
+        "quantity": encrypt_data(str(item.quantity)),  # Encrypt the quantity
+        "cabinet": encrypt_data(item.cabinet),  # Encrypt the cabinet
+        "room": encrypt_data(item.room),  # Encrypt the room
+        "location": encrypt_data(item.location),  # Encrypt the location
+        "user_id": current_user["_id"],  # Associate with the current user
+    }
+
+    # Insert the encrypted item into the database
     await db["Inventory"].insert_one(item_data)
-    return {"message": "Item added successfully"}
+
+    return {"message": "Item added successfully", "id": next_item_id}
 
 # Delete an item by ID for the logged-in user
 @items_router.delete("/{item_id}", response_model=dict)
@@ -46,18 +75,40 @@ async def get_next_item_id(current_user: dict = Depends(get_current_user), db=De
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
-# Update or add an item for the logged-in user
 @items_router.put("/{item_id}", response_model=Item)
 async def update_item(item_id: int, item: Item, current_user: dict = Depends(get_current_user), db=Depends(get_db)):
     try:
-        item_data = item.dict()
-        item_data["user_id"] = current_user["_id"]
-        
-        result = await db["Inventory"].replace_one({"id": item_id, "user_id": current_user["_id"]}, item_data, upsert=True)
+        # Prepare item data with encryption
+        item_data = {
+            "id": item_id,  # Use provided item ID
+            "name": encrypt_data(item.name),  # Encrypt the name
+            "description": encrypt_data(item.description) if item.description else "",  # Encrypt description if present
+            "quantity": encrypt_data(str(item.quantity)),  # Encrypt the quantity
+            "cabinet": encrypt_data(item.cabinet),  # Encrypt cabinet
+            "room": encrypt_data(item.room),  # Encrypt room
+            "location": encrypt_data(item.location),  # Encrypt location
+            "user_id": current_user["_id"],  # Associate with current user
+        }
+
+        # Update or insert the item
+        result = await db["Inventory"].replace_one(
+            {"id": item_id, "user_id": current_user["_id"]}, item_data, upsert=True
+        )
+
         if result.matched_count == 0 and not result.upserted_id:
             raise HTTPException(status_code=400, detail="Failed to update or insert item")
         
-        return item
+        # Decrypt the item data before returning to the user
+        item_data["name"] = decrypt_data(item_data["name"])
+        item_data["description"] = decrypt_data(item_data["description"]) if item_data["description"] else ""
+        item_data["quantity"] = decrypt_data(item_data["quantity"])
+        item_data["cabinet"] = decrypt_data(item_data["cabinet"])
+        item_data["room"] = decrypt_data(item_data["room"])
+        item_data["location"] = decrypt_data(item_data["location"])
+
+        # Return the decrypted item data
+        return Item(**item_data)
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 

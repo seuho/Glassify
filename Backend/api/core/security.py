@@ -1,10 +1,10 @@
 from passlib.context import CryptContext
 from jose import jwt
 from datetime import datetime, timedelta
-from core.config import config
+from api.core.config import config
 from fastapi import HTTPException
 from typing import Dict
-from database.connection import get_user_by_id
+from api.database.connection import get_user_by_id
 
 SECRET_KEY = config.SECRET_KEY  # Use a strong key from environment variables
 ALGORITHM = "HS256"

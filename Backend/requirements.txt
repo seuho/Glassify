@@ -8,3 +8,7 @@ python-dotenv
 pyngrok
 python-multipart
 motor
+cryptography
+python-jose[cryptography]
+datetime
+passlib[bcrypt]

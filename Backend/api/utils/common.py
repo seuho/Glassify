@@ -1,7 +1,7 @@
 from cryptography.fernet import Fernet
 from pymongo import MongoClient
 from fastapi import HTTPException
-from core.config import config
+from api.core.config import config
 
 # Generate a secret key for encryption (keep it secure and consistent across your app)
 # Use `Fernet.generate_key()` once to generate the key, and store it securely.

@@ -17,7 +17,7 @@ async def get_items(current_user: dict = Depends(get_current_user), db=Depends(g
     print(items)
     for item in items:
         item_data = {
-            "id": str(item["_id"]),  # Convert ObjectId to a string
+            "id": str(item["id"]),  # Convert ObjectId to a string
             "name": decrypt_data(item["name"]),  # Decrypt sensitive data
             "description": decrypt_data(item["description"]),
             "quantity": decrypt_data(item["quantity"]),
@@ -67,10 +67,9 @@ async def delete_item(item_id: int, current_user: dict = Depends(get_current_use
 @items_router.get("/next-item-id", response_model=dict)
 async def get_next_item_id(current_user: dict = Depends(get_current_user), db=Depends(get_db)):
     try:
-        max_id = await db["Inventory"].find_one(
-            {"user_id": current_user["_id"]}, sort=[("id", -1)], projection={"id": 1}
-        )
-        next_id = (max_id["id"] if max_id else 0) + 1
+        last_item = await db["Inventory"].find_one(
+            {"user_id": current_user["_id"]}, sort=[("id", -1)])
+        next_id = last_item["id"] + 1 if last_item else 1 
         return {"next_id": next_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")

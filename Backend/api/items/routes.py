@@ -32,8 +32,8 @@ async def get_items(current_user: dict = Depends(get_current_user), db=Depends(g
 @items_router.post("/", response_model=dict)
 async def add_item(item: Item, current_user: dict = Depends(get_current_user), db=Depends(get_db)):
     # Get the next item ID
-    next_item_id_doc = await db["Inventory"].find_one(sort=[("id", -1)])  # Get the document with the highest ID
-    next_item_id = next_item_id_doc["id"] + 1 if next_item_id_doc else 1  # Increment ID or set to 1 if no items exist
+    next_item_id_response = await get_next_item_id(current_user, db)  # Await the function
+    next_item_id = next_item_id_response["next_id"]  # Extract the next_id from response
 
     # Prepare item data with encryption
     item_data = {

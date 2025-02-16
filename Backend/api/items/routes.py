@@ -6,15 +6,16 @@ from api.utils.common import encrypt_data, decrypt_data
 import pandas as pd
 from io import BytesIO
 from bson import ObjectId
+import uuid  # For generating unique barcodes
 
 items_router = APIRouter()
 
+# Get all items for the logged-in user
 @items_router.get("/", response_model=list)
 async def get_items(current_user: dict = Depends(get_current_user), db=Depends(get_db)):
     items_cursor = db["Inventory"].find({"user_id": ObjectId(current_user["_id"])})
     items = await items_cursor.to_list(length=None)  # Fetch all documents
     item_list = []
-    print(items)
     for item in items:
         item_data = {
             "id": str(item["id"]),  # Convert ObjectId to a string
@@ -24,16 +25,21 @@ async def get_items(current_user: dict = Depends(get_current_user), db=Depends(g
             "cabinet": decrypt_data(item["cabinet"]),
             "room": decrypt_data(item["room"]),
             "location": decrypt_data(item["location"]),
+            "barcode": item["barcode"],  # Include the barcode
         }
         item_list.append(item_data)  # Add to the result list
 
     return item_list
 
+# Add a new item
 @items_router.post("/", response_model=dict)
 async def add_item(item: Item, current_user: dict = Depends(get_current_user), db=Depends(get_db)):
     # Get the next item ID
     next_item_id_response = await get_next_item_id(current_user, db)  # Await the function
     next_item_id = next_item_id_response["next_id"]  # Extract the next_id from response
+
+    # Generate a unique barcode
+    barcode = str(uuid.uuid4())
 
     # Prepare item data with encryption
     item_data = {
@@ -44,13 +50,14 @@ async def add_item(item: Item, current_user: dict = Depends(get_current_user), d
         "cabinet": encrypt_data(item.cabinet),  # Encrypt the cabinet
         "room": encrypt_data(item.room),  # Encrypt the room
         "location": encrypt_data(item.location),  # Encrypt the location
+        "barcode": barcode,  # Add the generated barcode
         "user_id": current_user["_id"],  # Associate with the current user
     }
 
     # Insert the encrypted item into the database
     await db["Inventory"].insert_one(item_data)
 
-    return {"message": "Item added successfully", "id": next_item_id}
+    return {"message": "Item added successfully", "id": next_item_id, "barcode": barcode}
 
 # Delete an item by ID for the logged-in user
 @items_router.delete("/{item_id}", response_model=dict)
@@ -74,6 +81,7 @@ async def get_next_item_id(current_user: dict = Depends(get_current_user), db=De
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+# Update an item by ID
 @items_router.put("/{item_id}", response_model=Item)
 async def update_item(item_id: int, item: Item, current_user: dict = Depends(get_current_user), db=Depends(get_db)):
     try:
@@ -86,6 +94,7 @@ async def update_item(item_id: int, item: Item, current_user: dict = Depends(get
             "cabinet": encrypt_data(item.cabinet),  # Encrypt cabinet
             "room": encrypt_data(item.room),  # Encrypt room
             "location": encrypt_data(item.location),  # Encrypt location
+            "barcode": item.barcode if item.barcode else str(uuid.uuid4()),  # Generate a new barcode if not provided
             "user_id": current_user["_id"],  # Associate with current user
         }
 
@@ -111,7 +120,32 @@ async def update_item(item_id: int, item: Item, current_user: dict = Depends(get
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+# Get item details by barcode
+@items_router.get("/barcode/{barcode}", response_model=Item)
+async def get_item_by_barcode(barcode: str, current_user: dict = Depends(get_current_user), db=Depends(get_db)):
+    try:
+        # Find the item by barcode and user_id
+        item = await db["Inventory"].find_one({"barcode": barcode, "user_id": current_user["_id"]})
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found or not owned by the current user.")
 
+        # Decrypt the item data before returning
+        decrypted_item = {
+            "id": str(item["id"]),
+            "name": decrypt_data(item["name"]),
+            "description": decrypt_data(item["description"]),
+            "quantity": decrypt_data(item["quantity"]),
+            "cabinet": decrypt_data(item["cabinet"]),
+            "room": decrypt_data(item["room"]),
+            "location": decrypt_data(item["location"]),
+            "barcode": item["barcode"],  # Barcode is not encrypted
+        }
+
+        return Item(**decrypted_item)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+# Upload items from an Excel file
 @items_router.post("/upload")
 async def upload_excel(
     file: UploadFile = File(...),
@@ -143,6 +177,7 @@ async def upload_excel(
                 "cabinet": encrypt_data(row["Cabinet"]),
                 "room": encrypt_data(row["Room"]),
                 "location": encrypt_data(row["Location"]),
+                "barcode": str(uuid.uuid4()),  # Generate a unique barcode
                 "user_id": current_user["_id"],
             }
             items.append(item_data)
